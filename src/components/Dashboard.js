@@ -91,14 +91,14 @@ export default function Dashboard({ onStartWorkout }) {
 
       <div className="days-grid">
         <h2 className="section-title">Start a Workout</h2>
-        {WORKOUT_PLAN.map(day => (
+        {WORKOUT_PLAN.map((day, i) => (
           <button
             key={day.id}
             className="day-card"
             onClick={() => onStartWorkout(day)}
             style={{ '--day-color': day.color }}
           >
-            <div className="day-card-emoji">{day.emoji}</div>
+            <div className="day-card-badge">{i + 1}</div>
             <div className="day-card-info">
               <span className="day-card-label">{day.label}</span>
               <span className="day-card-name">{day.name}</span>
