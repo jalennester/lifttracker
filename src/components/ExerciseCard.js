@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { getExercisePR } from '../hooks/useWorkoutTracker';
 
-export default function ExerciseCard({ exercise, data, onUpdateSet, onUpdateNotes, dayColor }) {
+export default function ExerciseCard({ exercise, data, onUpdateSet, onUpdateNotes, dayColor, getExercisePR }) {
   const [showNotes, setShowNotes] = useState(false);
   const pr = getExercisePR(exercise.id);
   const sets = data?.sets || [];

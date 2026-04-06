@@ -1,10 +1,6 @@
 import { useState } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Area, AreaChart
-} from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { WORKOUT_PLAN } from '../data/workouts';
-import { loadPRHistory } from '../hooks/useWorkoutTracker';
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
@@ -14,7 +10,7 @@ const CustomTooltip = ({ active, payload, label }) => {
         {payload.map((p, i) => (
           <div key={i} className="tt-row">
             <span className="tt-label">{p.name}</span>
-            <span className="tt-value">{p.value} {p.name === 'Volume' ? '' : 'lbs'}</span>
+            <span className="tt-value">{p.value}{p.name === 'Volume' ? '' : ' lbs'}</span>
           </div>
         ))}
       </div>
@@ -23,15 +19,11 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-export default function ProgressCharts() {
+export default function ProgressCharts({ getProgressData }) {
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [metric, setMetric] = useState('weight');
 
-  const allExercises = WORKOUT_PLAN.flatMap(day =>
-    day.exercises.map(ex => ({ ...ex, dayName: day.name, dayColor: day.color }))
-  );
-
-  const history = selectedExercise ? loadPRHistory(selectedExercise.id) : [];
+  const history = selectedExercise ? getProgressData(selectedExercise.id) : [];
 
   const chartData = history.map(h => ({
     date: h.date,
@@ -50,7 +42,7 @@ export default function ProgressCharts() {
           {WORKOUT_PLAN.map(day => (
             <div key={day.id} className="day-group">
               <div className="day-group-label" style={{ color: day.color }}>
-                {day.emoji} {day.name}
+                {day.name}
               </div>
               {day.exercises.map(ex => (
                 <button

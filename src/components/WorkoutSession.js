@@ -4,13 +4,13 @@ import { useState } from 'react';
 
 export default function WorkoutSession({
   day, sessionData, onUpdateSet, onUpdateNotes,
-  onSave, onBack, selectedDate, setSelectedDate
+  onSave, onBack, selectedDate, setSelectedDate, getExercisePR
 }) {
   const [saved, setSaved] = useState(false);
   const [prs, setPrs] = useState([]);
 
-  const handleSave = () => {
-    const foundPRs = onSave();
+  const handleSave = async () => {
+    const foundPRs = await onSave();
     setPrs(foundPRs || []);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -61,6 +61,7 @@ export default function WorkoutSession({
                   onUpdateSet={onUpdateSet}
                   onUpdateNotes={onUpdateNotes}
                   dayColor={day.color}
+                  getExercisePR={getExercisePR}
                 />
               ))}
             </div>

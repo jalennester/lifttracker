@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { WORKOUT_PLAN } from '../data/workouts';
 
-export default function HistoryView({ loadAllSessions }) {
-  const sessions = loadAllSessions();
+export default function HistoryView({ allSessions }) {
   const [expandedSession, setExpandedSession] = useState(null);
 
   const getDayInfo = (dayId) => WORKOUT_PLAN.find(d => d.id === dayId);
 
-  if (sessions.length === 0) {
+  if (allSessions.length === 0) {
     return (
       <div className="history-view">
         <h2 className="section-title">Workout History</h2>
@@ -23,7 +22,7 @@ export default function HistoryView({ loadAllSessions }) {
     <div className="history-view">
       <h2 className="section-title">Workout History</h2>
       <div className="history-list">
-        {sessions.map((session) => (
+        {allSessions.map((session) => (
           <div key={session.date} className="history-session">
             <div
               className="session-header"
@@ -42,7 +41,7 @@ export default function HistoryView({ loadAllSessions }) {
                       className="day-chip"
                       style={{ background: day.color + '22', color: day.color, border: `1px solid ${day.color}44` }}
                     >
-                      {day.emoji} {day.label}
+                      {day.label}
                     </span>
                   );
                 })}
@@ -58,7 +57,7 @@ export default function HistoryView({ loadAllSessions }) {
                   return (
                     <div key={dayId} className="session-day-block">
                       <div className="session-day-title" style={{ color: day.color }}>
-                        {day.emoji} {day.name}
+                        {day.name}
                       </div>
                       {Object.entries(dayData).map(([exId, exData]) => {
                         const exercise = day.exercises.find(e => e.id === exId);

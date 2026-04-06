@@ -1,71 +1,75 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getStorageKey, getPRKey, formatDate } from '../data/workouts';
+import { supabase } from '../lib/supabase';
+import { formatDate } from '../data/workouts';
 
-// ─── Storage Helpers ──────────────────────────────────────────────────────────
+// ─── Supabase Helpers ─────────────────────────────────────────────────────────
 
-export const saveSession = (date, dayId, setsData) => {
-  const key = getStorageKey(date);
-  const existing = JSON.parse(localStorage.getItem(key) || '{}');
-  existing[dayId] = setsData;
-  localStorage.setItem(key, JSON.stringify(existing));
-};
+async function fetchAllSessions(userId) {
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('date, day_id, data')
+    .eq('user_id', userId)
+    .order('date', { ascending: false });
 
-export const loadSession = (date, dayId) => {
-  const key = getStorageKey(date);
-  const data = JSON.parse(localStorage.getItem(key) || '{}');
-  return data[dayId] || {};
-};
+  if (error) throw error;
 
-export const loadAllSessions = () => {
-  const sessions = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key.startsWith('lifts_')) {
-      const date = key.replace('lifts_', '');
-      const data = JSON.parse(localStorage.getItem(key));
-      sessions.push({ date, data });
-    }
-  }
-  return sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
-};
+  // Group rows by date → { date, data: { dayId: exerciseData } }
+  const map = {};
+  data.forEach(row => {
+    if (!map[row.date]) map[row.date] = { date: row.date, data: {} };
+    map[row.date].data[row.day_id] = row.data;
+  });
+  return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+}
 
-export const savePR = (exerciseId, weight, reps, date) => {
-  const key = getPRKey(exerciseId);
-  const current = JSON.parse(localStorage.getItem(key) || '[]');
-  current.push({ weight, reps, date, volume: weight * reps });
-  localStorage.setItem(key, JSON.stringify(current));
-};
+async function fetchAllPRs(userId) {
+  const { data, error } = await supabase
+    .from('personal_records')
+    .select('exercise_id, weight, reps, date, volume')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
 
-export const loadPRHistory = (exerciseId) => {
-  const key = getPRKey(exerciseId);
-  return JSON.parse(localStorage.getItem(key) || '[]');
-};
+  if (error) throw error;
 
-export const getExercisePR = (exerciseId) => {
-  const history = loadPRHistory(exerciseId);
-  if (!history.length) return null;
-  return history.reduce((best, entry) => 
-    entry.weight > best.weight ? entry : best, history[0]);
-};
+  // Group by exerciseId → { exerciseId: [{ weight, reps, date, volume }] }
+  const map = {};
+  data.forEach(row => {
+    if (!map[row.exercise_id]) map[row.exercise_id] = [];
+    map[row.exercise_id].push({ weight: row.weight, reps: row.reps, date: row.date, volume: row.volume });
+  });
+  return map;
+}
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export const useWorkoutTracker = () => {
+export const useWorkoutTracker = (user) => {
+  const [loading, setLoading] = useState(true);
+  const [allSessions, setAllSessions] = useState([]);
+  const [allPRs, setAllPRs] = useState({});
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [sessionData, setSessionData] = useState({});
   const [newPRs, setNewPRs] = useState([]);
 
-  const loadDay = useCallback((date, dayId) => {
-    const data = loadSession(date, dayId);
-    setSessionData(data);
-  }, []);
-
+  // Load all data when user logs in
   useEffect(() => {
-    if (selectedDay) {
-      loadDay(selectedDate, selectedDay.id);
-    }
-  }, [selectedDate, selectedDay, loadDay]);
+    if (!user) { setLoading(false); return; }
+    setLoading(true);
+    Promise.all([fetchAllSessions(user.id), fetchAllPRs(user.id)])
+      .then(([sessions, prs]) => {
+        setAllSessions(sessions);
+        setAllPRs(prs);
+      })
+      .catch(err => console.error('Failed to load data:', err))
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  // Load session data when entering a workout day
+  useEffect(() => {
+    if (!selectedDay) return;
+    const session = allSessions.find(s => s.date === selectedDate);
+    setSessionData(session?.data?.[selectedDay.id] || {});
+  }, [selectedDate, selectedDay, allSessions]);
 
   const updateSet = useCallback((exerciseId, setIndex, field, value) => {
     setSessionData(prev => {
@@ -76,7 +80,7 @@ export const useWorkoutTracker = () => {
       }
       updated[exerciseId].sets[setIndex] = {
         ...updated[exerciseId].sets[setIndex],
-        [field]: value
+        [field]: value,
       };
       return updated;
     });
@@ -91,48 +95,104 @@ export const useWorkoutTracker = () => {
     });
   }, []);
 
-  const saveCurrentSession = useCallback(() => {
-    if (!selectedDay) return;
-    saveSession(selectedDate, selectedDay.id, sessionData);
+  const saveCurrentSession = useCallback(async () => {
+    if (!selectedDay || !user) return;
 
-    // Check for PRs
+    // Upsert session row
+    const { error: sessionError } = await supabase
+      .from('workout_sessions')
+      .upsert(
+        { user_id: user.id, date: selectedDate, day_id: selectedDay.id, data: sessionData },
+        { onConflict: 'user_id,date,day_id' }
+      );
+
+    if (sessionError) { console.error(sessionError); return; }
+
+    // Update local sessions cache
+    setAllSessions(prev => {
+      const exists = prev.find(s => s.date === selectedDate);
+      if (exists) {
+        return prev.map(s =>
+          s.date === selectedDate
+            ? { ...s, data: { ...s.data, [selectedDay.id]: sessionData } }
+            : s
+        );
+      }
+      return [{ date: selectedDate, data: { [selectedDay.id]: sessionData } }, ...prev]
+        .sort((a, b) => b.date.localeCompare(a.date));
+    });
+
+    // Detect PRs
     const prsFound = [];
-    Object.entries(sessionData).forEach(([exerciseId, exData]) => {
-      if (!exData.sets) return;
-      exData.sets.forEach(set => {
-        if (!set || !set.weight || !set.reps) return;
+    const prInserts = [];
+
+    for (const [exerciseId, exData] of Object.entries(sessionData)) {
+      if (!exData.sets) continue;
+      for (const set of exData.sets) {
+        if (!set?.weight || !set?.reps) continue;
         const weight = parseFloat(set.weight);
         const reps = parseInt(set.reps);
-        if (isNaN(weight) || isNaN(reps)) return;
+        if (isNaN(weight) || isNaN(reps)) continue;
 
-        const currentPR = getExercisePR(exerciseId);
-        if (!currentPR || weight > currentPR.weight) {
-          savePR(exerciseId, weight, reps, selectedDate);
+        const history = allPRs[exerciseId] || [];
+        const currentBest = history.reduce((best, e) => e.weight > best.weight ? e : best, { weight: 0 });
+
+        if (weight > currentBest.weight) {
           prsFound.push({ exerciseId, weight, reps });
+          prInserts.push({
+            user_id: user.id,
+            exercise_id: exerciseId,
+            weight,
+            reps,
+            date: selectedDate,
+            volume: weight * reps,
+          });
         }
-      });
-    });
+      }
+    }
+
+    if (prInserts.length > 0) {
+      const { error: prError } = await supabase.from('personal_records').insert(prInserts);
+      if (!prError) {
+        setAllPRs(prev => {
+          const updated = { ...prev };
+          prInserts.forEach(pr => {
+            if (!updated[pr.exercise_id]) updated[pr.exercise_id] = [];
+            updated[pr.exercise_id] = [
+              ...updated[pr.exercise_id],
+              { weight: pr.weight, reps: pr.reps, date: pr.date, volume: pr.volume },
+            ];
+          });
+          return updated;
+        });
+      }
+    }
+
     setNewPRs(prsFound);
     return prsFound;
-  }, [selectedDay, selectedDate, sessionData]);
+  }, [selectedDay, selectedDate, sessionData, user, allPRs]);
 
   const getProgressData = useCallback((exerciseId) => {
-    return loadPRHistory(exerciseId).map(entry => ({
-      date: entry.date,
-      weight: entry.weight,
-      reps: entry.reps,
-      volume: entry.volume,
-    }));
-  }, []);
+    return allPRs[exerciseId] || [];
+  }, [allPRs]);
+
+  const getExercisePR = useCallback((exerciseId) => {
+    const history = allPRs[exerciseId];
+    if (!history?.length) return null;
+    return history.reduce((best, e) => e.weight > best.weight ? e : best, history[0]);
+  }, [allPRs]);
 
   return {
+    loading,
+    allSessions,
+    allPRs,
     selectedDate, setSelectedDate,
     selectedDay, setSelectedDay,
     sessionData,
     updateSet, updateNotes,
     saveCurrentSession,
     getProgressData,
+    getExercisePR,
     newPRs, setNewPRs,
-    loadAllSessions,
   };
 };

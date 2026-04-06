@@ -1,5 +1,4 @@
 import { WORKOUT_PLAN, formatDate } from '../data/workouts';
-import { getExercisePR, loadAllSessions } from '../hooks/useWorkoutTracker';
 
 function computeStreak(sessions) {
   if (!sessions.length) return 0;
@@ -11,7 +10,6 @@ function computeStreak(sessions) {
   yesterday.setDate(today.getDate() - 1);
   const yesterdayStr = formatDate(yesterday);
 
-  // Start from today if worked out, else yesterday (user might not have gone yet today)
   let startDate;
   if (sessionDates.has(todayStr)) startDate = new Date(today);
   else if (sessionDates.has(yesterdayStr)) startDate = new Date(yesterday);
@@ -24,31 +22,30 @@ function computeStreak(sessions) {
     if (sessionDates.has(dateStr)) {
       streak++;
       checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      break;
-    }
+    } else break;
   }
   return streak;
 }
 
-export default function Dashboard({ onStartWorkout }) {
-  const sessions = loadAllSessions();
-  const streak = computeStreak(sessions);
+export default function Dashboard({ allSessions, getExercisePR, onStartWorkout, onSignOut, user }) {
+  const streak = computeStreak(allSessions);
 
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - now.getDay());
-  const weekSessions = sessions.filter(s => new Date(s.date) >= weekStart);
+  const weekSessions = allSessions.filter(s => new Date(s.date) >= weekStart);
 
-  const allExercises = WORKOUT_PLAN.flatMap(d => d.exercises.map(e => ({ ...e, dayColor: d.color, dayEmoji: d.emoji })));
+  const allExercises = WORKOUT_PLAN.flatMap(d =>
+    d.exercises.map(e => ({ ...e, dayColor: d.color, dayEmoji: d.emoji }))
+  );
   const prs = allExercises
     .map(ex => ({ exercise: ex, pr: getExercisePR(ex.id) }))
     .filter(x => x.pr)
     .sort((a, b) => new Date(b.pr.date) - new Date(a.pr.date))
     .slice(0, 6);
 
-  const totalSessions = sessions.length;
-  const totalVolume = sessions.reduce((acc, s) => {
+  const totalSessions = allSessions.length;
+  const totalVolume = allSessions.reduce((acc, s) => {
     Object.values(s.data).forEach(dayData => {
       Object.values(dayData).forEach(exData => {
         exData.sets?.forEach(set => {
@@ -62,8 +59,16 @@ export default function Dashboard({ onStartWorkout }) {
   return (
     <div className="dashboard">
       <div className="dashboard-hero">
-        <h1 className="hero-title">Lock In 🔒</h1>
-        <p className="hero-sub">Track every rep. Chase every PR.</p>
+        <div className="hero-top-row">
+          <div>
+            <h1 className="hero-title">Lock In 🔒</h1>
+            <p className="hero-sub">Track every rep. Chase every PR.</p>
+          </div>
+          <div className="hero-user">
+            <span className="hero-email">{user?.email}</span>
+            <button className="sign-out-btn" onClick={onSignOut}>Sign out</button>
+          </div>
+        </div>
       </div>
 
       <div className="stats-row">
